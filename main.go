@@ -1,12 +1,18 @@
 package main
 
 // Methods in this project are created as per Fiber Framework
+// Fiber is a layer over the HTTP package
 
 import (
+	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	// All these packages are available in github
+	"PostgresWithGo/Postgres-with-Go/models"
+	"PostgresWithGo/Postgres-with-Go/storage"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/joho/godotenv"
 	"gorm.io/gorm"
@@ -44,7 +50,7 @@ func (r *Repository) CreateBook(context *fiber.Ctx) error {
 			&fiber.Map{"message": "request failed"})
 		return err
 	}
-	r.DB.Create(&book).Error
+	err = r.DB.Create(&book).Error
 	if err != nil {
 		context.Status(http.StatusBadRequest).JSON(
 			&fiber.Map{"message": "could not create book"})
@@ -53,6 +59,55 @@ func (r *Repository) CreateBook(context *fiber.Ctx) error {
 
 	context.Status(http.StatusOK).JSON(&fiber.Map{
 		"message": "book has been added"})
+	return nil
+}
+
+func (r *Repository) GetBookByID(context *fiber.Ctx) error {
+	id := context.Params("id")
+	bookModel := &models.Books{}
+	if id == "" {
+		context.Status(http.StatusInternalServerError).JSON(&fiber.Map{
+			"message": "id cannot be empty",
+		})
+		return nil
+	}
+	fmt.Println("the ID is", id)
+
+	err := r.DB.Where("id = ?", id).First(bookModel).Error
+	if err != nil {
+		context.Status(http.StatusBadRequest).JSON(
+			&fiber.Map{"message": "could not get the book"},
+		)
+		return err
+	}
+	context.Status(http.StatusOK).JSON(&fiber.Map{
+		"message": "book id fetched successfully",
+		"data":    bookModel,
+	})
+	return nil
+}
+
+func (r *Repository) DeleteBook(context *fiber.Ctx) error {
+	bookModel := models.Books{}
+	id := context.Params("id")
+	if id == "" {
+		context.Status(http.StatusInternalServerError).JSON(&fiber.Map{
+			"message": "id cannot be empty",
+		})
+		return nil
+	}
+
+	err := r.DB.Delete(bookModel, id)
+
+	if err.Error != nil {
+		context.Status(http.StatusBadRequest).JSON(&fiber.Map{
+			"message": "could not delete book",
+		})
+		return err.Error
+	}
+	context.Status(http.StatusOK).JSON(&fiber.Map{
+		"message": "book deleted successfully",
+	})
 	return nil
 }
 
@@ -93,16 +148,34 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Creating a repository with database
-	r := Repository{
-		DB: db,
+	// storage is a package created in storage folder
+	config := &storage.Config{
+		Host:     os.Getenv("DB_HOST"),
+		Port:     os.Getenv("DB_PORT"),
+		Password: os.Getenv("DB_PASS"),
+		User:     os.Getenv("DB_USER"),
+		SSLMode:  os.Getenv("DB_SSLMODE"),
+		DBName:   os.Getenv("DB_NAME"),
 	}
 
+	/*
+	* This code will create a connection to the database
+	 */
 	db, err := storage.NewConnection(config)
 	if err != nil {
 		log.Fatal("Could not load the database")
 	}
 
+	// If db doesn't exist in Postgres, MigrateBook create the db
+	err = models.MigrateBook(db)
+	if err != nil {
+		log.Fatal("could not migrate db")
+	}
+
+	// Creating a repository with database
+	r := Repository{
+		DB: db,
+	}
 	/*
 	* Fiber: Fiber provides a minimalistic and flexible API for creating web servers and handling HTTP requests and responses.
 	* It focuses on high performance and aims to be one of the fastest web frameworks available in Go.
